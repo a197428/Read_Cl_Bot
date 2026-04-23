@@ -3,6 +3,7 @@ import { getAllBroadcasts, getNextBroadcast, searchBroadcasts, getBroadcastsForT
 import { queryAI } from './ai';
 
 const TELEGRAM_API_URL = 'https://api.telegram.org/bot';
+const TELEGRAM_SAFE_MESSAGE_LIMIT = 3500;
 
 /**
  * Обрабатывает обновление от Telegram
@@ -130,8 +131,6 @@ async function handleScheduleCommand(chatId: number, env: Environment): Promise<
       return;
     }
 
-    let message = `📅 *Расписание на завтра:*\n\n`;
-    
     // Группируем по времени для удобства чтения
     const groupedByTime: Record<string, typeof broadcasts> = {};
     
@@ -142,21 +141,37 @@ async function handleScheduleCommand(chatId: number, env: Environment): Promise<
       groupedByTime[broadcast.start_time].push(broadcast);
     });
 
+    const chunks: string[] = [];
+    let currentChunk = `📅 *Расписание на завтра:*\n\n`;
+
     for (const [time, timeBroadcasts] of Object.entries(groupedByTime).sort()) {
-      message += `🕐 *${time}*\n`;
-      
+      let section = `🕐 *${time}*\n`;
       for (const broadcast of timeBroadcasts) {
         const categoryEmoji = getCategoryEmoji(broadcast.category);
-        message += `${categoryEmoji} ${broadcast.title}\n`;
-        message += `   👨‍🏫 ${broadcast.author}\n`;
-        message += `   🔗 [Ссылка](${broadcast.url})\n\n`;
+        section += `${categoryEmoji} ${broadcast.title}\n`;
+        section += `   👨‍🏫 ${broadcast.author}\n`;
+        section += `   🔗 [Ссылка](${broadcast.url})\n\n`;
       }
+
+      if (currentChunk.length + section.length > TELEGRAM_SAFE_MESSAGE_LIMIT) {
+        chunks.push(currentChunk.trimEnd());
+        currentChunk = `📅 *Расписание на завтра (продолжение):*\n\n`;
+      }
+      currentChunk += section;
     }
 
-    message += `\nВсего: ${broadcasts.length} трансляций\n`;
-    message += `🔔 Уведомления придут за 15 минут до начала.`;
+    const summary = `Всего: ${broadcasts.length} трансляций\n🔔 Уведомления придут за 15 минут до начала.`;
+    if (currentChunk.length + summary.length > TELEGRAM_SAFE_MESSAGE_LIMIT) {
+      chunks.push(currentChunk.trimEnd());
+      currentChunk = summary;
+    } else {
+      currentChunk += summary;
+    }
+    chunks.push(currentChunk.trimEnd());
 
-    await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, message);
+    for (const chunk of chunks) {
+      await sendMessage(env.TELEGRAM_BOT_TOKEN, chatId, chunk);
+    }
   } catch (error) {
     console.error('Error handling schedule command:', error);
     await sendMessage(

@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "liveclasses-db"
-database_id = ""  # Будет заполнено после создания базы
+database_id = "a0f223d8-ae98-4aa9-be72-fefb65745af7"
 
 [triggers]
 crons = [

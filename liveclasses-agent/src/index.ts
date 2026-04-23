@@ -200,7 +200,8 @@ async function handleNotificationCheck(env: Environment): Promise<void> {
   try {
     console.log('Checking for notifications at', new Date().toISOString());
     
-    const upcoming = await getUpcomingBroadcasts(env.DB, 15); // За 15 минут
+    const upcomingAll = await getUpcomingBroadcasts(env.DB, 15); // За 15 минут
+    const upcoming = upcomingAll.filter(isAIBroadcast);
     const dbUsers = await getUserTelegramIds(env.DB);
     const recipients = new Set<string>(dbUsers);
     if (env.ADMIN_TELEGRAM_ID) {
@@ -245,4 +246,32 @@ async function handleNotificationCheck(env: Environment): Promise<void> {
   } catch (error) {
     console.error('Notification check failed:', error);
   }
+}
+
+function isAIBroadcast(broadcast: { title: string; category?: string; url: string }): boolean {
+  const haystack = `${broadcast.title} ${broadcast.category || ''} ${broadcast.url}`.toLowerCase();
+
+  const aiKeywords = [
+    ' ai ',
+    'ai:',
+    'ai-',
+    'ai/',
+    'chatgpt',
+    'gpt',
+    'нейросет',
+    'нейросеть',
+    'midjourney',
+    'stable diffusion',
+    'sdxl',
+    'lora',
+    'leonardo',
+    'fooocus',
+    'krea',
+    'freepik',
+    'prompt',
+    'промпт',
+  ];
+
+  const paddedHaystack = ` ${haystack} `;
+  return aiKeywords.some(keyword => paddedHaystack.includes(keyword));
 }
