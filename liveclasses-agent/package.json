@@ -1,0 +1,25 @@
+{
+  "name": "liveclasses-agent",
+  "version": "1.0.0",
+  "description": "AI агент для трансляций LiveClasses на Cloudflare Workers",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:create": "wrangler d1 create liveclasses-db",
+    "db:migrate": "wrangler d1 execute liveclasses-db --file=./migrations/001_init.sql",
+    "db:seed": "wrangler d1 execute liveclasses-db --file=./migrations/002_seed.sql"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "@cloudflare/workers-types": "^4.20240425.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

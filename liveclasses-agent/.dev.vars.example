@@ -1,0 +1,4 @@
+# Wrangler local secrets template (copy to .dev.vars for `wrangler dev`)
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+DEEPSEEK_API_KEY=your_routerai_or_deepseek_api_key
+ADMIN_TELEGRAM_ID=your_admin_telegram_id

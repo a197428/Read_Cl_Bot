@@ -1,0 +1,17 @@
+liveclasses-agent/node_modules/
+liveclasses-agent/.wrangler/
+liveclasses-agent/dist/
+
+# Local secrets
+liveclasses-agent/.env
+liveclasses-agent/.env.local
+liveclasses-agent/.dev.vars
+liveclasses-agent/.dev.vars.*
+!liveclasses-agent/.env.example
+!liveclasses-agent/.dev.vars.example
+
+# Logs
+*.log
+
+# Local tool artifacts
+.codex
