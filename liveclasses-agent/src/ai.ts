@@ -3,15 +3,16 @@ import {
 	getBroadcastsForTomorrow,
 	getNextBroadcast,
 	searchBroadcasts,
+	getRecentArticles,
+	searchArticlesByTag,
 } from './database';
-import { Environment } from './types';
+import { Environment, RssItem, ArticleLLMResult, ProcessedArticle } from './types';
+import { calculateTotalScore } from './articles/scorer';
+import { markArticleAsSeen } from './articles/dedup';
+import { buildArticlesContext } from './agent/memory';
 
 const MODEL = 'deepseek/deepseek-v3.2';
 
-/**
- * Проверяет, что используется правильная модель
- * ОЧЕНЬ ВАЖНО: ТОЛЬКО deepseek/deepseek-v3.2
- */
 function ensureCorrectModel(config: any): void {
 	if (config.model !== MODEL) {
 		throw new Error(
@@ -20,24 +21,20 @@ function ensureCorrectModel(config: any): void {
 	}
 }
 
-/**
- * Запрашивает ответ у AI с использованием контекста из базы данных
- */
+// ============================================================================
+// Legacy: queryAI для трансляций
+// ============================================================================
+
 export async function queryAI(
 	question: string,
 	env: Environment,
 ): Promise<string> {
 	try {
-		// Проверяем модель из конфигурации
 		ensureCorrectModel({ model: env.MODEL });
 
-		// Получаем контекст из базы данных
 		const context = await buildAIContext(question, env.DB);
-
-		// Формируем промпт с контекстом
 		const prompt = buildPrompt(question, context);
 
-		// Отправляем запрос к AI
 		const response = await fetch(`${env.ROUTERAI_BASE_URL}/chat/completions`, {
 			method: 'POST',
 			headers: {
@@ -74,7 +71,6 @@ export async function queryAI(
 
 		const data = (await response.json()) as any;
 
-		// Дополнительная проверка модели в ответе
 		if (data.model && data.model !== env.MODEL) {
 			console.warn(
 				`Warning: AI response mentions different model: ${data.model}`,
@@ -87,29 +83,22 @@ export async function queryAI(
 		);
 	} catch (error) {
 		console.error('AI query error:', error);
-
-		// Fallback ответ на случай ошибки
 		return await getFallbackAnswer(question, env.DB);
 	}
 }
 
-/**
- * Строит контекст для AI на основе вопроса
- */
 async function buildAIContext(
 	question: string,
 	db: D1Database,
 ): Promise<string> {
 	const questionLower = question.toLowerCase();
 
-	// Определяем тип вопроса
 	if (
 		questionLower.includes('ближайш') ||
 		questionLower.includes('следующ') ||
 		questionLower.includes('скоро') ||
 		questionLower.includes('когда следующая')
 	) {
-		// Ближайшая трансляция
 		const nextBroadcast = await getNextBroadcast(db);
 		if (!nextBroadcast) {
 			return 'Ближайших трансляций не найдено.';
@@ -121,14 +110,13 @@ async function buildAIContext(
 				const start = new Date(b.start_datetime);
 				return start > new Date();
 			})
-			.slice(0, 3); // Ближайшие 3
+			.slice(0, 3);
 
 		return formatBroadcastsForContext(upcoming, 'Ближайшие трансляции:');
 	} else if (
 		questionLower.includes('завтра') ||
 		questionLower.includes('расписан')
 	) {
-		// Расписание на завтра
 		const broadcasts = await getBroadcastsForTomorrow(db);
 		if (broadcasts.length === 0) {
 			return 'На завтра трансляций не запланировано.';
@@ -139,7 +127,6 @@ async function buildAIContext(
 		questionLower.includes('все') ||
 		questionLower.includes('полное расписан')
 	) {
-		// Все трансляции
 		const broadcasts = await getAllBroadcasts(db);
 		if (broadcasts.length === 0) {
 			return 'Трансляций не найдено.';
@@ -152,7 +139,6 @@ async function buildAIContext(
 		questionLower.includes('преподаватель') ||
 		questionLower.includes('лектор')
 	) {
-		// Вопросы об авторах
 		const broadcasts = await getAllBroadcasts(db);
 		const authors = [...new Set(broadcasts.map(b => b.author))];
 
@@ -173,7 +159,6 @@ async function buildAIContext(
 		questionLower.includes('программирование') ||
 		questionLower.includes('развитие')
 	) {
-		// Вопросы по категориям/тематикам
 		const searchTerms = extractSearchTerms(question);
 		if (searchTerms.length > 0) {
 			const results: string[] = [];
@@ -195,7 +180,6 @@ async function buildAIContext(
 			}
 		}
 
-		// Если поиск не дал результатов, показываем все категории
 		const broadcasts = await getAllBroadcasts(db);
 		const categories = [
 			...new Set(broadcasts.map(b => b.category).filter(Boolean)),
@@ -214,7 +198,6 @@ async function buildAIContext(
 		questionLower.includes('сколько') ||
 		questionLower.includes('количеств')
 	) {
-		// Количественные вопросы
 		const broadcasts = await getAllBroadcasts(db);
 		const tomorrowBroadcasts = await getBroadcastsForTomorrow(db);
 
@@ -223,7 +206,6 @@ async function buildAIContext(
 			`Трансляций на завтра: ${tomorrowBroadcasts.length}`
 		);
 	} else {
-		// Общий контекст
 		const nextBroadcast = await getNextBroadcast(db);
 		const tomorrowBroadcasts = await getBroadcastsForTomorrow(db);
 
@@ -236,7 +218,6 @@ async function buildAIContext(
 		if (tomorrowBroadcasts.length > 0) {
 			context += `На завтра запланировано ${tomorrowBroadcasts.length} трансляций.\n`;
 
-			// Группируем по времени для краткости
 			const timeGroups: Record<string, number> = {};
 			tomorrowBroadcasts.forEach(b => {
 				timeGroups[b.start_time] = (timeGroups[b.start_time] || 0) + 1;
@@ -253,9 +234,6 @@ async function buildAIContext(
 	}
 }
 
-/**
- * Форматирует трансляции для контекста AI
- */
 function formatBroadcastsForContext(broadcasts: any[], title: string): string {
 	if (broadcasts.length === 0) {
 		return `${title} Нет данных.`;
@@ -275,9 +253,6 @@ function formatBroadcastsForContext(broadcasts: any[], title: string): string {
 	return context.trim();
 }
 
-/**
- * Извлекает поисковые термины из вопроса
- */
 function extractSearchTerms(question: string): string[] {
 	const terms: string[] = [];
 	const lowerQuestion = question.toLowerCase();
@@ -291,7 +266,6 @@ function extractSearchTerms(question: string): string[] {
 		развитие: ['развитие', 'навык', 'обучен', 'образован'],
 	};
 
-	// Проверяем категории
 	for (const [category, keywords] of Object.entries(categoryMap)) {
 		for (const keyword of keywords) {
 			if (lowerQuestion.includes(keyword)) {
@@ -301,7 +275,6 @@ function extractSearchTerms(question: string): string[] {
 		}
 	}
 
-	// Если не нашли категорий, пытаемся извлечь ключевые слова
 	if (terms.length === 0) {
 		const words = question.split(/\s+/).filter(word => word.length > 3);
 		terms.push(...words.slice(0, 2));
@@ -310,9 +283,6 @@ function extractSearchTerms(question: string): string[] {
 	return terms;
 }
 
-/**
- * Строит промпт для AI
- */
 function buildPrompt(question: string, context: string): string {
 	return `Вопрос пользователя: "${question}"
 
@@ -324,9 +294,6 @@ ${context}
 Отвечай на русском языке кратко и информативно.`;
 }
 
-/**
- * Fallback ответ на случай ошибки AI
- */
 async function getFallbackAnswer(
 	question: string,
 	db: D1Database,
@@ -368,11 +335,270 @@ async function getFallbackAnswer(
 	}
 }
 
-/**
- * Тестовая функция для проверки использования правильной модели
- */
 export function testModelValidation(): void {
 	console.log('Testing model validation');
 	ensureCorrectModel({ model: MODEL });
 	console.log(`✓ Model ${MODEL} is allowed`);
+}
+
+// ============================================================================
+// NEW: Article processing with LLM
+// ============================================================================
+
+/**
+ * Обрабатывает статью через LLM (deepseek/deepseek-v3.2)
+ */
+export async function processArticleWithLLM(
+	item: RssItem,
+	env: Environment
+): Promise<ProcessedArticle | null> {
+	try {
+		ensureCorrectModel({ model: env.MODEL });
+
+		// Получаем контент статьи (опционально — для глубокого анализа)
+		// Для экономии токенов отправляем только заголовок + описание
+		const articleContent = `${item.title}\n\n${item.description || ''}`;
+
+		const prompt = buildArticleProcessingPrompt(articleContent);
+
+		const response = await fetch(`${env.ROUTERAI_BASE_URL}/chat/completions`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
+			},
+			body: JSON.stringify({
+				model: env.MODEL,
+				messages: [
+					{
+						role: 'system',
+						content: `Ты — инженер и аналитик. Разбери статью и подготовь данные для AI-системы.
+Отвечай ТОЛЬКО валидным JSON без markdown-разметки.`,
+					},
+					{ role: 'user', content: prompt },
+				],
+				temperature: 0.5,
+				max_tokens: 1500,
+				stream: false,
+			}),
+		});
+
+		if (!response.ok) {
+			console.error('LLM article processing error:', response.status);
+			return null;
+		}
+
+		const data = (await response.json()) as any;
+		const content = data.choices?.[0]?.message?.content;
+
+		if (!content) {
+			console.warn('Empty LLM response for article:', item.title);
+			return null;
+		}
+
+		// Парсим JSON из ответа
+		const result = parseLLMJson<ArticleLLMResult>(content);
+		if (!result) {
+			console.warn('Failed to parse LLM JSON for article:', item.title);
+			return null;
+		}
+
+		// Считаем итоговый скор
+		const score = calculateTotalScore(
+			item.source,
+			result.relevance_score,
+			result.depth_score
+		);
+
+		// Сохраняем в articles_seen и получаем seen_id
+		const seenId = await markArticleAsSeen(item, env.DB);
+
+		return {
+			seen_id: seenId,
+			title: item.title,
+			summary: result.summary,
+			practical_value: result.practical_value,
+			key_ideas: result.key_ideas,
+			simple_explanation: result.simple_explanation,
+			conclusion: result.conclusion,
+			tags: result.tags.map(t => t.toLowerCase()),
+			score,
+			source_score: getBaseScoreForSource(item.source),
+			relevance_score: result.relevance_score,
+			depth_score: result.depth_score,
+			url: item.link,
+		};
+	} catch (error) {
+		console.error('processArticleWithLLM error:', error);
+		return null;
+	}
+}
+
+/**
+ * Отвечает на вопрос пользователя по теме статей
+ */
+export async function queryArticlesByTopic(
+	topic: string,
+	env: Environment
+): Promise<string> {
+	try {
+		// 1. Ищем статьи по тегам (14 дней)
+		const articles = await searchArticlesByTag(env.DB, topic, 14);
+
+		// 2. Если нашли — формируем ответ из БД
+		if (articles.length > 0) {
+			return formatArticleResponse(articles, topic);
+		}
+
+		// 3. Fallback: ищем по всем недавним статьям через LLM
+		const recentArticles = await getRecentArticles(env.DB, 14);
+		if (recentArticles.length === 0) {
+			return `По теме "${topic}" пока нет данных. Дайджест публикуется ежедневно в 10:00.`;
+		}
+
+		const context = buildArticlesContext(recentArticles);
+		const answer = await askLLMForTopicAnalysis(topic, context, env);
+		return answer;
+	} catch (error) {
+		console.error('queryArticlesByTopic error:', error);
+		return `Ошибка при поиске по теме "${topic}". Попробуйте позже.`;
+	}
+}
+
+/**
+ * Формирует ответ из найденных статей
+ */
+function formatArticleResponse(articles: ProcessedArticle[], topic: string): string {
+	const lines: string[] = [`📚 Что нового по теме "${topic}":\n`];
+
+	for (const a of articles.slice(0, 5)) {
+		lines.push(`📄 *${a.title}*`);
+		lines.push(`🏷️ ${a.tags.join(' • ')}`);
+		lines.push(`📝 ${a.summary}`);
+		if (a.practical_value) {
+			lines.push(`💡 ${a.practical_value}`);
+		}
+		lines.push(`🔗 [Читать](${a.url})`);
+		lines.push('');
+	}
+
+	return lines.join('\n');
+}
+
+/**
+ * Запрашивает у LLM анализ по теме на основе накопленных статей
+ */
+async function askLLMForTopicAnalysis(
+	topic: string,
+	context: string,
+	env: Environment
+): Promise<string> {
+	try {
+		ensureCorrectModel({ model: env.MODEL });
+
+		const response = await fetch(`${env.ROUTERAI_BASE_URL}/chat/completions`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
+			},
+			body: JSON.stringify({
+				model: env.MODEL,
+				messages: [
+					{
+						role: 'system',
+						content: `Ты — AI аналитик технологических трендов. 
+На основе предоставленных статей дай краткий обзор по теме.
+Отвечай на русском языке, конкретно, без воды.`,
+					},
+					{
+						role: 'user',
+						content: `Тема: "${topic}"
+
+Контекст (статьи из базы):
+${context}
+
+Дай краткий обзор трендов по этой теме на основе статей.
+Если данных недостаточно — скажи прямо.`,
+					},
+				],
+				temperature: 0.7,
+				max_tokens: 1200,
+				stream: false,
+			}),
+		});
+
+		if (!response.ok) {
+			return `По теме "${topic}" нет свежих данных, но вы можете посмотреть последний дайджест командой /digest.`;
+		}
+
+		const data = (await response.json()) as any;
+		return (
+			data.choices?.[0]?.message?.content ||
+			`По теме "${topic}" пока нет данных.`
+		);
+	} catch (error) {
+		console.error('askLLMForTopicAnalysis error:', error);
+		return `Не удалось получить анализ по теме "${topic}".`;
+	}
+}
+
+// ============================================================================
+// Prompt builders
+// ============================================================================
+
+function buildArticleProcessingPrompt(articleContent: string): string {
+	return `РОЛЬ: Ты — инженер и аналитик.
+ЗАДАЧА: Разобрать статью и подготовить данные для AI-системы.
+
+СТИЛЬ: конкретно, без воды, понятно.
+
+СТАТЬЯ:
+${articleContent.slice(0, 3000)}
+
+ТРЕБОВАНИЯ (ответ в JSON):
+{
+  "summary": "КРАТКОЕ РЕЗЮМЕ (2-3 предложения)",
+  "practical_value": "ПРАКТИЧЕСКАЯ ЦЕННОСТЬ (1 предложение)",
+  "key_ideas": ["КЛЮЧЕВАЯ ИДЕЯ 1", "КЛЮЧЕВАЯ ИДЕЯ 2", "КЛЮЧЕВАЯ ИДЕЯ 3"],
+  "simple_explanation": "ПРОСТОЕ ОБЪЯСНЕНИЕ для не-эксперта",
+  "conclusion": "ВЫВОД: стоит ли читать и почему",
+  "tags": ["ai", "agents", "llm", "infra", "vibe-coding", "devops"],
+  "relevance_score": 0,
+  "depth_score": 0
+}
+
+relevance_score: 0-2 (0=не релевантно, 1=частично, 2=высокая релевантность для разработчиков)
+depth_score: 0-1 (0=поверхностно, 1=глубокий анализ)`;
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function getBaseScoreForSource(source: string): number {
+	const scores: Record<string, number> = {
+		thenewstack: 3,
+		infoworld: 3,
+		tds: 2,
+	};
+	return scores[source] || 0;
+}
+
+/**
+ * Парсит JSON из LLM-ответа (с защитой от markdown-обёртки)
+ */
+function parseLLMJson<T>(content: string): T | null {
+	try {
+		// Убираем markdown-обёртку ```json ... ```
+		const cleaned = content
+			.replace(/^```json\s*/, '')
+			.replace(/^```\s*/, '')
+			.replace(/\s*```$/, '')
+			.trim();
+
+		return JSON.parse(cleaned) as T;
+	} catch {
+		return null;
+	}
 }

@@ -10,16 +10,21 @@
     "typecheck": "tsc --noEmit",
     "db:create": "wrangler d1 create liveclasses-db",
     "db:migrate": "wrangler d1 execute liveclasses-db --file=./migrations/001_init.sql",
-    "db:seed": "wrangler d1 execute liveclasses-db --file=./migrations/002_seed.sql"
+    "db:seed": "wrangler d1 execute liveclasses-db --file=./migrations/002_seed.sql",
+    "db:migrate:articles": "wrangler d1 execute liveclasses-db --file=./migrations/003_articles.sql"
   },
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12",
-    "@cloudflare/workers-types": "^4.20240425.0"
+    "@cloudflare/workers-types": "^4.20240425.0",
+    "@xmldom/xmldom": "^0.9.10",
+    "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0",
+    "@types/jsdom": "^28.0.1",
+    "@types/node": "^20.0.0",
+    "@xmldom/xmldom": "^0.9.10",
+    "jsdom": "^28.1.0",
     "typescript": "^5.0.0",
     "vitest": "^1.0.0",
-    "@types/node": "^20.0.0"
+    "wrangler": "^3.0.0"
   }
 }
