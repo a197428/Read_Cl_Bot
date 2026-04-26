@@ -1,8 +1,31 @@
 # Read-Close-Bot
 
-> AI-агент для ежедневного дайджеста технологических статей с интеллектуальным поиском.
+> AI-агент для ежедневного дайджеста технологических статей. Работает на **Cloudflare Workers** (Free Tier).
 
 📰 Каждый день в **10:00 по Москве** бот собирает статьи из The New Stack, InfoWorld и Towards Data Science, анализирует их через DeepSeek v3.2 и отправляет лучшие в Telegram.
+
+## 🏗️ Cloudflare Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Cloudflare Workers                        │
+│                                                             │
+│   ┌─────────┐    ┌──────────┐    ┌────────────┐            │
+│   │  Cron   │───▶│  Agent   │───▶│   Telegram  │            │
+│   │ Trigger │    │ (index)  │    │     Bot     │            │
+│   └─────────┘    └────┬─────┘    └────────────┘            │
+│                      │                                      │
+│   ┌──────────────────┴──────────────────┐                   │
+│   │            D1 Database              │                   │
+│   │  • articles_seen (URLs, hashes)    │                   │
+│   │  • articles_processed (AI analysis) │                   │
+│   │  • user_queries (history)           │                   │
+│   └─────────────────────────────────────┘                   │
+│                                                             │
+│   Sources: The New Stack, InfoWorld, TDS                    │
+│   AI: RouterAI + DeepSeek v3.2                              │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Возможности
 
@@ -41,7 +64,7 @@ npm run deploy
 
 ```
 READ-CL-BOT/
-├── liveclasses-agent/     # Cloudflare Worker (AI-агент)
+├── liveclasses-agent/     # Cloudflare Worker
 │   ├── src/
 │   │   ├── index.ts       # Entry point, cron handler
 │   │   ├── ai.ts          # LLM интеграция
@@ -66,20 +89,18 @@ User Query → Understanding → Decision → Memory → Response
 - **Memory** — накапливает историю и контекст
 - **Response** — формирует ответ на основе статей
 
-## Tech Stack
+## Cloudflare Stack
 
-| Компонент | Назначение |
-|-----------|------------|
-| Cloudflare Workers | Рантайм агента |
-| Cloudflare D1 | Хранение статей |
-| Cron Triggers | Ежедневный запуск в 10:00 МСК |
-| RouterAI + DeepSeek v3.2 | AI-анализ |
-| Telegram Bot API | Доставка дайджеста |
+| Компонент | Назначение | Лимит Free Tier |
+|-----------|------------|-----------------|
+| **Workers** | Рантайм агента | 100k req/day, 10ms CPU |
+| **D1 Database** | Хранение статей и истории | 5GB, 5M rows |
+| **Cron Triggers** | Ежедневный запуск в 10:00 МСК | до 3 на worker |
 
 ## Cron
 
 ```
-0 7 * * *   # 10:00 МСК (07:00 UTC)
+0 7 * * *   # 10:00 МСК (07:00 UTC) — ежедневный дайджест
 ```
 
 ## Модель
