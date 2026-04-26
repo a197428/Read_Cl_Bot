@@ -20,9 +20,11 @@ describe('understanding', () => {
     expect(result.keywords).toContain('vibe-coding');
   });
 
-  it('routes broadcast queries correctly', () => {
+  it('routes general queries to articles when topic detected', () => {
     const result = understandQuery('какая ближайшая трансляция?');
-    expect(result.responseType).toBe('broadcasts');
+    // No broadcasts anymore - general queries go to article search
+    expect(result.responseType).toBe('general');
+    expect(result.topic.length).toBeGreaterThan(0);
   });
 
   it('isArticleQuery returns true for article queries', () => {
