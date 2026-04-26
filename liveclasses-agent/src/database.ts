@@ -169,6 +169,25 @@ export async function hasArticlesToday(db: D1Database): Promise<boolean> {
 }
 
 /**
+ * Получает случайную статью (для команды "тест")
+ */
+export async function getRandomArticle(db: D1Database): Promise<ProcessedArticle | null> {
+  try {
+    const result = await db.prepare(`
+      SELECT * FROM articles_processed
+      ORDER BY RANDOM()
+      LIMIT 1
+    `).first();
+
+    if (!result) return null;
+    return parseArticleRow(result);
+  } catch (error) {
+    console.error('Failed to get random article:', error);
+    return null;
+  }
+}
+
+/**
  * Парсит строку БД в ProcessedArticle
  */
 function parseArticleRow(row: any): ProcessedArticle {

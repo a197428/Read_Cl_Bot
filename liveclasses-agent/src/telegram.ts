@@ -1,5 +1,5 @@
 import { TelegramUpdate, Environment, ProcessedArticle } from './types';
-import { upsertUser, getTopArticles } from './database';
+import { upsertUser, getTopArticles, getRandomArticle } from './database';
 import { queryArticlesByTopic } from './ai';
 import { decideResponse, shouldSearchArticles } from './agent/decision';
 import { saveUserQuery } from './agent/memory';
@@ -78,7 +78,9 @@ async function handleCommand(
 				`• Новости по vibe coding\n` +
 				`• Какие статьи по агентам?\n\n` +
 				`📰 *Дайджест:*\n` +
-				`Публикуется ежедневно в 10:00 МСК.`
+				`Публикуется ежедневно в 10:00 МСК.\n\n` +
+				`🔧 *Тест:*\n` +
+				`Отправьте "тест" для случайной статьи из базы.`
 			);
 			break;
 
@@ -176,6 +178,12 @@ async function handleTextMessage(
 	telegramId: string
 ): Promise<void> {
 	try {
+		// Специальная команда "тест" — случайная статья
+		if (text.toLowerCase() === 'тест') {
+			await handleTestCommand(chatId, env);
+			return;
+		}
+
 		// Agent Decision Layer: определяем тип запроса
 		const decision = await decideResponse(text, env);
 		await saveUserQuery(env.DB, text, decision.topic, decision.responseType, telegramId);
@@ -205,6 +213,35 @@ async function handleTextMessage(
 			env.TELEGRAM_BOT_TOKEN,
 			chatId,
 			'❌ Ошибка при обработке сообщения. Попробуйте позже.'
+		);
+	}
+}
+
+// ============================================================================
+// Test command — случайная статья
+// ============================================================================
+
+async function handleTestCommand(chatId: number, env: Environment): Promise<void> {
+	try {
+		const article = await getRandomArticle(env.DB);
+
+		if (!article) {
+			await sendMessage(
+				env.TELEGRAM_BOT_TOKEN,
+				chatId,
+				`📭 Статей для теста пока нет.\n` +
+				`Дайджест формируется ежедневно в 10:00.`
+			);
+			return;
+		}
+
+		await sendArticleMessage(env.TELEGRAM_BOT_TOKEN, chatId, article);
+	} catch (error) {
+		console.error('Error handling test command:', error);
+		await sendMessage(
+			env.TELEGRAM_BOT_TOKEN,
+			chatId,
+			'❌ Ошибка при получении случайной статьи.'
 		);
 	}
 }
