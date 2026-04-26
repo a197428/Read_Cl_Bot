@@ -2,7 +2,7 @@
 
 > AI-агент для ежедневного дайджеста технологических статей с интеллектуальным поиском.
 
-📰 Каждый день в 10:00 по Москве бот собирает статьи из The New Stack, InfoWorld и Towards Data Science, анализирует их через DeepSeek v3.2 и отправляет лучшие в Telegram.
+📰 Каждый день в **10:00 по Москве** бот собирает статьи из The New Stack, InfoWorld и Towards Data Science, анализирует их через DeepSeek v3.2 и отправляет лучшие в Telegram.
 
 ## Возможности
 
@@ -12,16 +12,6 @@
 - **De-duplication** — исключение дубликатов по URL и hash
 - **Scoring** — оценка статей по источнику, релевантности и глубине
 - **Telegram Bot** — `/digest`, `/help`, команды и свободный поиск
-
-## Tech Stack
-
-| Компонент | Назначение |
-|-----------|------------|
-| **Cloudflare Workers** | Рантайм агента |
-| **Cloudflare D1** | Хранение статей и истории |
-| **Cron Triggers** | Ежедневный запуск в 10:00 МСК |
-| **RouterAI + DeepSeek v3.2** | AI-анализ статей |
-| **Telegram Bot API** | Доставка дайджеста |
 
 ## Sources и Scoring
 
@@ -38,13 +28,12 @@
 ```bash
 cd liveclasses-agent
 npm install
-cp .env.example .env
-cp .dev.vars.example .dev.vars
-npm run db:create
-npm run db:migrate
+
+# Secrets
 wrangler secret put TELEGRAM_BOT_TOKEN
 wrangler secret put DEEPSEEK_API_KEY
 wrangler secret put ADMIN_TELEGRAM_ID
+
 npm run deploy
 ```
 
@@ -52,83 +41,51 @@ npm run deploy
 
 ```
 READ-CL-BOT/
-├── liveclasses-agent/     # Основной код Cloudflare Worker
+├── liveclasses-agent/     # Cloudflare Worker (AI-агент)
 │   ├── src/
 │   │   ├── index.ts       # Entry point, cron handler
-│   │   ├── ai.ts          # LLM интеграция, обработка статей
+│   │   ├── ai.ts          # LLM интеграция
 │   │   ├── database.ts    # D1 operations
 │   │   ├── telegram.ts    # Telegram Bot API
-│   │   ├── types.ts       # TypeScript definitions
 │   │   ├── agent/         # Agent-first компоненты
-│   │   │   ├── decision.ts    # Принятие решений
-│   │   │   ├── understanding.ts  # Понимание запросов
-│   │   │   └── memory.ts      # История и контекст
-│   │   └── articles/      # Парсинг, дедупликация, scoring
-│   │       ├── fetcher.ts
-│   │       ├── dedup.ts
-│   │       └── scorer.ts
-│   └── migrations/
+│   │   └── articles/      # RSS fetchers, dedup, scoring
+│   └── migrations/        # D1 schema
 ├── Agents.md              # Полная архитектура системы
-└── README.md              # Этот файл
+└── README.md
 ```
 
-## Агент — внутренняя архитектура
+## Agent-first архитектура
 
 ```
-User Query → Understanding Layer → Decision Layer
-                                         ↓
-                              Memory Layer (history, context)
-                                         ↓
-                              Response (articles / general)
+User Query → Understanding → Decision → Memory → Response
 ```
 
-**Понимание** (`understanding.ts`) — извлекает тему и ключевые слова из запроса пользователя.
+Слои агента:
+- **Understanding** — извлекает тему из запроса
+- **Decision** — определяет тип ответа (articles/general)
+- **Memory** — накапливает историю и контекст
+- **Response** — формирует ответ на основе статей
 
-**Решение** (`decision.ts`) — определяет тип ответа (articles/general) и стратегию.
+## Tech Stack
 
-**Память** (`memory.ts`) — накапливает историю запросов, популярные темы, контекст из статей.
-
-## API Endpoints
-
-| Endpoint | Метод | Описание |
-|----------|-------|----------|
-| `/` | GET | Статус сервиса |
-| `/telegram-webhook` | POST | Telegram webhook |
-| `/api/digest` | POST | Ручной запуск дайджеста |
+| Компонент | Назначение |
+|-----------|------------|
+| Cloudflare Workers | Рантайм агента |
+| Cloudflare D1 | Хранение статей |
+| Cron Triggers | Ежедневный запуск в 10:00 МСК |
+| RouterAI + DeepSeek v3.2 | AI-анализ |
+| Telegram Bot API | Доставка дайджеста |
 
 ## Cron
 
 ```
-0 7 * * *   # 10:00 МСК (07:00 UTC) — ежедневный дайджест
-```
-
-## Конфигурация
-
-```bash
-# Обязательные секреты
-TELEGRAM_BOT_TOKEN   # От @BotFather
-DEEPSEEK_API_KEY     # RouterAI или DeepSeek API
-ADMIN_TELEGRAM_ID    # Для уведомлений об ошибках
-
-# Переменные (wrangler.toml)
-MODEL=deepseek/deepseek-v3.2
-ROUTERAI_BASE_URL=https://routerai.ru/api/v1
-TIMEZONE=Europe/Moscow
-```
-
-## Разработка
-
-```bash
-npm run dev      # Локальный wrangler dev
-npm run typecheck
-npm test         # Vitest unit tests
-npm run deploy   # Деплой в Cloudflare
+0 7 * * *   # 10:00 МСК (07:00 UTC)
 ```
 
 ## Модель
 
-**Только `deepseek/deepseek-v3.2`** через RouterAI. Проверка встроена в `ai.ts`.
+**Только `deepseek/deepseek-v3.2`** через RouterAI. Проверка встроена в код.
 
 ---
 
-MIT License
+MIT
