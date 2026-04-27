@@ -233,6 +233,10 @@ function parseTags(line: string): string[] {
 	return tagsPart.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
 }
 
+function escapeMarkdown(text: string): string {
+	return text.replace(/([_*~\[\]()>`#+\-=|{}.!])/g, '\\$1');
+}
+
 /**
  * Отвечает на вопрос пользователя по теме статей
  */
@@ -268,11 +272,11 @@ function formatArticleResponse(articles: ProcessedArticle[], topic: string): str
 	const lines: string[] = [`📚 Что нового по теме "${topic}":\n`];
 
 	for (const a of articles.slice(0, 5)) {
-		lines.push(`📄 *${a.title}*`);
-		lines.push(`🏷️ ${a.tags.join(' • ')}`);
-		lines.push(`📝 ${a.summary}`);
+		lines.push(`📄 *${escapeMarkdown(a.title)}*`);
+		lines.push(`🏷️ ${a.tags.map(t => escapeMarkdown(t)).join(' • ')}`);
+		lines.push(`📝 ${escapeMarkdown(a.summary)}`);
 		if (a.practical_value) {
-			lines.push(`💡 ${a.practical_value}`);
+			lines.push(`💡 ${escapeMarkdown(a.practical_value)}`);
 		}
 		lines.push(`🔗 [Читать](${a.url})`);
 		lines.push('');

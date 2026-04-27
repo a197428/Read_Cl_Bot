@@ -138,25 +138,29 @@ async function handleDigestCommand(chatId: number, env: Environment): Promise<vo
 /**
  * Отправляет одну статью в Telegram (отдельное сообщение)
  */
+function escapeMarkdown(text: string): string {
+	return text.replace(/([_*~\[\]()>`#+\-=|{}.!])/g, '\\$1');
+}
+
 export async function sendArticleMessage(
 	token: string,
 	chatId: number,
 	article: ProcessedArticle
 ): Promise<void> {
 	const lines: string[] = [];
-	lines.push(`📄 *${article.title}*`);
-	lines.push(`🏷️ ${article.tags.join(' • ')}`);
+	lines.push(`📄 *${escapeMarkdown(article.title)}*`);
+	lines.push(`🏷️ ${article.tags.map(t => escapeMarkdown(t)).join(' • ')}`);
 	lines.push(`⭐ Скор: ${article.score}/10`);
 	lines.push('');
-	lines.push(`📝 ${article.summary}`);
+	lines.push(`📝 ${escapeMarkdown(article.summary)}`);
 	if (article.practical_value) {
-		lines.push(`💡 ${article.practical_value}`);
+		lines.push(`💡 ${escapeMarkdown(article.practical_value)}`);
 	}
 	if (article.key_ideas && article.key_ideas.length > 0) {
 		lines.push('');
 		lines.push('*Ключевые идеи:*');
 		article.key_ideas.forEach((idea, i) => {
-			lines.push(`${i + 1}. ${idea}`);
+			lines.push(`${i + 1}. ${escapeMarkdown(idea)}`);
 		});
 	}
 	lines.push('');
